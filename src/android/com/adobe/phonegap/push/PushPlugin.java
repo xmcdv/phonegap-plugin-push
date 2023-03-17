@@ -12,11 +12,11 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.NotificationManagerCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import android.util.Log;
 
-import com.google.firebase.iid.FirebaseInstanceId;
+import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.apache.cordova.CallbackContext;
@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import me.leolin.shortcutbadger.ShortcutBadger;
 
@@ -199,18 +200,23 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
             Log.v(LOG_TAG, "execute: senderID=" + senderID);
 
             try {
-              token = FirebaseInstanceId.getInstance().getToken();
+              token = Tasks.await(FirebaseMessaging.getInstance().getToken());
+              Log.d(LOG_TAG, "Firebase token: " + token);
             } catch (IllegalStateException e) {
-              Log.e(LOG_TAG, "Exception raised while getting Firebase token " + e.getMessage());
+              Log.e(LOG_TAG, "IllegalStateException raised while getting Firebase token " + e.getMessage());
+            } catch (ExecutionException e) {
+              Log.e(LOG_TAG, "ExecutionException raised while getting Firebase token " + e.getMessage());
+            } catch (InterruptedException e) {
+              Log.e(LOG_TAG, "InterruptedException raised while getting Firebase token " + e.getMessage());
             }
 
-            if (token == null) {
+            /*if (token == null) {
               try {
                 token = FirebaseInstanceId.getInstance().getToken(senderID, FCM);
               } catch (IllegalStateException e) {
                 Log.e(LOG_TAG, "Exception raised while getting Firebase token " + e.getMessage());
               }
-            }
+            }*/
 
             if (!"".equals(token)) {
               JSONObject json = new JSONObject().put(REGISTRATION_ID, token);
@@ -229,11 +235,7 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
           } catch (JSONException e) {
             Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
             callbackContext.error(e.getMessage());
-          } catch (IOException e) {
-            Log.e(LOG_TAG, "execute: Got IO Exception " + e.getMessage());
-            callbackContext.error(e.getMessage());
           } catch (Resources.NotFoundException e) {
-
             Log.e(LOG_TAG, "execute: Got Resources NotFoundException " + e.getMessage());
             callbackContext.error(e.getMessage());
           }
@@ -283,32 +285,28 @@ public class PushPlugin extends CordovaPlugin implements PushConstants {
     } else if (UNREGISTER.equals(action)) {
       cordova.getThreadPool().execute(new Runnable() {
         public void run() {
-          try {
-            SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
-                Context.MODE_PRIVATE);
-            JSONArray topics = data.optJSONArray(0);
-            if (topics != null && !"".equals(registration_id)) {
-              unsubscribeFromTopics(topics, registration_id);
-            } else {
-              FirebaseInstanceId.getInstance().deleteInstanceId();
-              Log.v(LOG_TAG, "UNREGISTER");
+          SharedPreferences sharedPref = getApplicationContext().getSharedPreferences(COM_ADOBE_PHONEGAP_PUSH,
+              Context.MODE_PRIVATE);
+          JSONArray topics = data.optJSONArray(0);
+          if (topics != null && !"".equals(registration_id)) {
+            unsubscribeFromTopics(topics, registration_id);
+          } else {
+            FirebaseMessaging.getInstance().deleteToken();
 
-              // Remove shared prefs
-              SharedPreferences.Editor editor = sharedPref.edit();
-              editor.remove(SOUND);
-              editor.remove(VIBRATE);
-              editor.remove(CLEAR_BADGE);
-              editor.remove(CLEAR_NOTIFICATIONS);
-              editor.remove(FORCE_SHOW);
-              editor.remove(SENDER_ID);
-              editor.commit();
-            }
+            Log.v(LOG_TAG, "UNREGISTER");
 
-            callbackContext.success();
-          } catch (IOException e) {
-            Log.e(LOG_TAG, "execute: Got JSON Exception " + e.getMessage());
-            callbackContext.error(e.getMessage());
+            // Remove shared prefs
+            SharedPreferences.Editor editor = sharedPref.edit();
+            editor.remove(SOUND);
+            editor.remove(VIBRATE);
+            editor.remove(CLEAR_BADGE);
+            editor.remove(CLEAR_NOTIFICATIONS);
+            editor.remove(FORCE_SHOW);
+            editor.remove(SENDER_ID);
+            editor.commit();
           }
+
+          callbackContext.success();
         }
       });
     } else if (FINISH.equals(action)) {
